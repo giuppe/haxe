@@ -411,12 +411,14 @@ let rec wait_loop process_params verbose accept =
 	let run_count = ref 0 in
 	while true do
 		let read, write, close = accept() in
+		let was_compilation = ref false in
 		let rec cache_context com =
 			let cache_module m =
 				CompilationServer.cache_module cs (m.m_path,m.m_extra.m_sign) m;
 				(*if verbose then print_endline (Printf.sprintf "%scached %s" (sign_string com) (s_type_path m.m_path));*)
 			in
 			if com.display.dms_full_typing then begin
+				was_compilation := true;
 				List.iter cache_module com.modules;
 				if verbose then print_endline ("Cached " ^ string_of_int (List.length com.modules) ^ " modules");
 			end;
@@ -430,6 +432,7 @@ let rec wait_loop process_params verbose accept =
 				incr compilation_step;
 				compilation_mark := !mark_loop;
 				List.iter (fun s -> write (s ^ "\n"); if verbose then print_endline ("> " ^ s)) (List.rev ctx.messages);
+				was_compilation := ctx.com.display.dms_display;
 				if ctx.has_error then begin
 					measure_times := false;
 					write "\x02\n"
@@ -521,8 +524,11 @@ let rec wait_loop process_params verbose accept =
 		close();
 		current_stdin := None;
 		(* prevent too much fragmentation by doing some compactions every X run *)
-		incr run_count;
-		if !run_count mod 10 = 0 then begin
+		if !was_compilation == true then incr run_count;
+		let max_count = 5 in
+		print_endline (Printf.sprintf "Was compilation: %B, run_count %d/%d" !was_compilation !run_count max_count);
+		if !run_count mod max_count = 0 && !was_compilation == true then begin
+			run_count := 0;
 			let t0 = get_time() in
 			Gc.compact();
 			if verbose then begin
